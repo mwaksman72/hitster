@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src https://audio-ssl.itunes.apple.com; connect-src 'self' https://itunes.apple.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>Song Timeline</title>
+  <meta name="theme-color" content="#4f46e5">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Timeline">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <!-- SETUP -->
+    <section id="setup" class="screen">
+      <h1>Song Timeline</h1>
+      <p class="muted">Hear a song, place it in your timeline by release year.</p>
+      <form id="setup-form" autocomplete="off">
+        <label>Mode
+          <select id="mode">
+            <option value="solo">Solo</option>
+            <option value="group">Group (pass the phone)</option>
+          </select>
+        </label>
+        <label id="players-row" hidden>Players
+          <input id="players" type="number" min="2" max="6" value="2" inputmode="numeric">
+        </label>
+        <div class="row">
+          <label>From year <input id="year-from" type="number" min="1900" max="2100" value="1930" inputmode="numeric"></label>
+          <label>To year <input id="year-to" type="number" min="1900" max="2100" value="2025" inputmode="numeric"></label>
+        </div>
+        <label>Language
+          <select id="lang">
+            <option value="both">Hebrew + English</option>
+            <option value="en">English</option>
+            <option value="he">Hebrew</option>
+          </select>
+        </label>
+        <label>Cards to win
+          <input id="target" type="number" min="2" max="20" value="3" inputmode="numeric">
+          <span class="muted small">Spec default is 10; 3 here because the spike catalog has only 10 songs.</span>
+        </label>
+        <p id="setup-error" class="error" role="alert"></p>
+        <button id="start" type="submit" class="primary" disabled>Start</button>
+      </form>
+    </section>
+
+    <!-- PLAY -->
+    <section id="play" class="screen" hidden>
+      <header class="bar">
+        <h2 id="turn-name"></h2>
+        <button id="quit" type="button" class="link">Quit</button>
+      </header>
+      <ul id="score" class="score"></ul>
+
+      <div id="mystery" class="card mystery">
+        <div class="qmark" aria-hidden="true">?</div>
+        <button id="play-btn" type="button" class="primary" disabled>Loading…</button>
+        <p id="audio-status" class="muted small" aria-live="polite"></p>
+        <p class="muted small">Tap a "Place here" slot where this song belongs.</p>
+      </div>
+
+      <div id="reveal" class="card reveal" hidden>
+        <h3 id="reveal-result"></h3>
+        <p id="reveal-song" class="song" dir="auto"></p>
+        <p id="reveal-year" class="year"></p>
+        <p id="reveal-note" class="muted"></p>
+        <button id="next-btn" type="button" class="primary">Next</button>
+      </div>
+
+      <ol id="timeline" class="timeline" aria-label="Timeline, earliest first"></ol>
+    </section>
+
+    <!-- END -->
+    <section id="end" class="screen" hidden>
+      <h1 id="end-title"></h1>
+      <ul id="end-stats" class="score"></ul>
+      <button id="again" type="button" class="primary">Play again</button>
+    </section>
+
+    <!-- DIAGNOSTICS -->
+    <details id="diag">
+      <summary>Diagnostics</summary>
+      <p id="env" class="small"></p>
+      <label class="small">Preview source
+        <select id="resolve-mode">
+          <option value="auto">auto (lookup, then stored URL)</option>
+          <option value="lookup">lookup only</option>
+          <option value="stored">stored URL only</option>
+        </select>
+      </label>
+      <div class="row">
+        <button id="check-all" type="button">Check all lookups</button>
+        <button id="copy-log" type="button">Copy log</button>
+      </div>
+      <pre id="diag-log"></pre>
+    </details>
+  </main>
+  <audio id="audio" preload="none"></audio>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
