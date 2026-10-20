@@ -6,6 +6,7 @@
   --line: #d9d9e8;
   --accent: #4f46e5;
   --accent-fg: #ffffff;
+  --alt: #c2410c;
   --good: #137a3a;
   --bad: #b3261e;
 }
@@ -18,6 +19,7 @@
     --line: #34344a;
     --accent: #7c75ff;
     --accent-fg: #0b0b14;
+    --alt: #fb923c;
     --good: #5fd18a;
     --bad: #ff8a80;
   }
@@ -32,6 +34,7 @@ body {
   padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 main { max-width: 32rem; margin: 0 auto; padding: 16px; }
+body.wide main { max-width: 76rem; }
 h1 { font-size: 1.6rem; margin: 0.4em 0 0.2em; }
 h2 { font-size: 1.2rem; margin: 0; }
 h3 { margin: 0 0 0.3em; }
@@ -43,6 +46,7 @@ h3 { margin: 0 0 0.3em; }
 form { display: grid; gap: 14px; margin-top: 12px; }
 label { display: grid; gap: 4px; font-weight: 600; }
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.stack { display: grid; gap: 8px; }
 input, select, button {
   font: inherit;
   min-height: 44px;
@@ -67,14 +71,80 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
 .score { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-wrap: wrap; gap: 8px; }
 .score li { padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 0.9rem; }
 .score li.current { border-color: var(--accent); font-weight: 700; }
+.score li.chip { padding: 0; }
+.score li.chip > span, .score li.chip > button { display: block; padding: 6px 12px; }
+.score li.chip > button { border: 0; background: none; color: inherit; font: inherit; min-height: 40px; border-radius: 999px; }
+.score li.chip > button[aria-expanded="true"] { background: var(--accent); color: var(--accent-fg); }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; margin: 10px 0; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 14px; }
+.card label { margin-top: 8px; }
 .mystery { text-align: center; }
 .qmark { font-size: 3rem; font-weight: 800; color: var(--accent); line-height: 1; margin-bottom: 8px; }
 .reveal .song { font-size: 1.15rem; font-weight: 700; margin: 0.2em 0; }
 .reveal .year { font-size: 2rem; font-weight: 800; margin: 0; color: var(--accent); }
 .reveal.good h3 { color: var(--good); }
 .reveal.bad h3 { color: var(--bad); }
+.notes { margin: 0.6em 0; padding-left: 1.2em; }
+
+.others { display: grid; gap: 12px; }
+.panel, .actions { display: grid; gap: 10px; }
+.actions .hint, #hint { margin: 0; }
+
+/* Desktop (>= 900px): three columns. */
+@media (min-width: 900px) {
+  .board {
+    display: grid;
+    gap: 16px;
+    margin-top: 8px;
+    grid-template-columns: minmax(11rem, 1fr) minmax(18rem, 2fr) minmax(15rem, 1fr);
+    grid-template-areas: "others active panel";
+    align-items: start;
+  }
+  .board.solo {
+    grid-template-columns: minmax(18rem, 2fr) minmax(15rem, 1fr);
+    grid-template-areas: "active panel";
+  }
+  .others { grid-area: others; }
+  .active { grid-area: active; }
+  .panel { grid-area: panel; }
+}
+
+/* Narrow / iPhone (< 900px), layout A "thumb bar":
+   sticky Play header on top, one timeline in the middle, sticky action bar at the bottom.
+   Other players' timelines are hidden behind the score chips (tap a chip to peek). */
+@media (max-width: 899px) {
+  .board { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+  .panel { display: contents; } /* mystery / reveal / actions become flex items of .board */
+  .others { display: none; order: 1; }
+  .others.open { display: grid; }
+  .others .mini { display: none; }
+  .others .mini.peek { display: block; }
+
+  #mystery {
+    order: 2; position: sticky; top: 0; z-index: 5;
+    margin: 0 -16px; padding: 8px 16px;
+    border-radius: 0; border-width: 0 0 1px;
+    display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 12px; text-align: left;
+  }
+  #mystery .qmark { font-size: 1.8rem; margin: 0; }
+  #mystery #audio-status { grid-column: 1 / -1; margin: 0; min-height: 1.1em; }
+  #reveal { order: 3; }
+  .active { order: 4; }
+  .timeline { gap: 6px; }
+
+  #actions {
+    order: 5; position: sticky; bottom: 0; z-index: 5;
+    margin: 0 -16px; padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    background: var(--bg); border-top: 1px solid var(--line);
+  }
+}
+
+.player-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-weight: 700; }
+.badge { font-weight: 600; font-size: 0.9rem; color: var(--muted); white-space: nowrap; }
+.mini { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--card); }
+.mini .timeline { margin: 8px 0 0; gap: 4px; }
+.mini .tl-card { grid-template-columns: 3.2rem 1fr; padding: 6px 8px; }
+.mini .tl-year { font-size: 1rem; }
 
 .timeline { list-style: none; padding: 0; margin: 12px 0; display: grid; gap: 8px; }
 .timeline .tl-card { display: grid; grid-template-columns: 4.2rem 1fr; gap: 10px; align-items: center; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; }
@@ -83,6 +153,10 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
 .tl-title { font-weight: 700; }
 .tl-artist { color: var(--muted); font-size: 0.9rem; }
 .slot { width: 100%; border-style: dashed; color: var(--accent); font-weight: 700; }
+.marker { padding: 6px 10px; border-radius: 10px; font-weight: 700; font-size: 0.9rem; border: 2px solid var(--accent); color: var(--accent); }
+.marker.role-b { border-color: var(--alt); color: var(--alt); }
+.marker.good { border-color: var(--good); color: var(--good); }
+.marker.bad { border-color: var(--bad); color: var(--bad); }
 
 details#diag { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 10px; }
 #diag summary { color: var(--muted); cursor: pointer; min-height: 32px; }

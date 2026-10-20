@@ -1,4 +1,7 @@
-import { DEFAULTS, createGame, placeCard } from './game.js';
+import {
+  DEFAULTS, activePlayer, awaitingChallengerSlot, challenge, challengeSlot, claimChallengeCard,
+  createGame, eligibleChallengers, nextTurn, placeCard, reveal,
+} from './game.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => {
@@ -46,14 +49,17 @@ async function fetchTimeout(url, ms) {
   }
 }
 
+// A track may exist in only one storefront (e.g. "diva" is US-only), so try both.
 async function lookup(song) {
-  const country = song.lang === 'he' ? 'IL' : 'US';
-  const r = await fetchTimeout(
-    `https://itunes.apple.com/lookup?id=${encodeURIComponent(song.itunesTrackId)}&country=${country}`, 5000);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  const url = (await r.json()).results?.[0]?.previewUrl;
-  if (!url) throw new Error('no previewUrl in response');
-  return url;
+  const countries = song.lang === 'he' ? ['IL', 'US'] : ['US', 'IL'];
+  for (const country of countries) {
+    const r = await fetchTimeout(
+      `https://itunes.apple.com/lookup?id=${encodeURIComponent(song.itunesTrackId)}&country=${country}`, 5000);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const url = (await r.json()).results?.[0]?.previewUrl;
+    if (url) return url;
+  }
+  throw new Error('no previewUrl in either storefront');
 }
 
 async function resolvePreview(song) {
@@ -128,10 +134,13 @@ audio.addEventListener('error', () => {
 // ---------- game flow ----------
 let songs = [];
 let game = null;
-let reveal = null; // result of the last placement, shown until "Next"
+let peekIdx = null; // narrow screens: index of the other player whose timeline is shown, or null
+
+const isGroup = () => game.players.length > 1;
 
 function show(name) {
   for (const id of ['setup', 'play', 'end']) $(id).hidden = id !== name;
+  document.body.classList.toggle('wide', name === 'play');
 }
 
 function readSettings() {
@@ -156,81 +165,251 @@ $('setup-form').addEventListener('submit', (e) => {
     $('setup-error').textContent = err.message;
     return;
   }
-  reveal = null;
   dlog(`game start ${JSON.stringify(game.settings)}`);
+  peekIdx = null;
   show('play');
   render();
   prepare(game.current);
 });
 
-function renderScore(activeIdx) {
+// ---- rendering ----
+const cardsLabel = (p) =>
+  `${p.timeline.length}/${game.settings.targetCards}${isGroup() ? ` · 🃏 ${p.challenges}` : ''}`;
+
+function renderScore() {
   const ul = $('score');
   ul.replaceChildren();
   game.players.forEach((p, i) => {
-    ul.append(el('li', i === activeIdx ? 'current' : '', `${p.name}: ${p.timeline.length}/${game.settings.targetCards}`));
+    const text = `${p.name}: ${cardsLabel(p)}`;
+    const li = el('li', i === game.turn ? 'current' : '');
+    if (isGroup() && i !== game.turn) {
+      // Tap to peek at this player's timeline (narrow screens; the desktop layout always shows them).
+      li.classList.add('chip');
+      const b = el('button', '', text);
+      b.type = 'button';
+      b.setAttribute('aria-expanded', String(peekIdx === i));
+      b.setAttribute('aria-label', `${text}. Show ${p.name}'s timeline`);
+      b.addEventListener('click', () => { peekIdx = peekIdx === i ? null : i; render(); });
+      li.append(b);
+    } else {
+      li.classList.add('chip');
+      li.append(el('span', '', text));
+    }
+    ul.append(li);
   });
 }
 
-function renderTimeline(player, interactive, highlightId) {
+function timelineCard(s, highlight) {
+  const li = el('li', `tl-card${highlight ? ' new' : ''}`);
+  const text = el('div');
+  const title = el('div', 'tl-title', s.title);
+  const artist = el('div', 'tl-artist', s.artist);
+  title.dir = artist.dir = 'auto';
+  text.append(title, artist);
+  li.append(el('div', 'tl-year', String(s.year)), text);
+  return li;
+}
+
+// Who may click slots in the active timeline right now?
+function slotMode() {
+  if (game.status !== 'playing' || game.phase === 'revealed') return null;
+  if (awaitingChallengerSlot(game)) return 'challenger';
+  return game.pending.challenger !== null ? null : 'active';
+}
+
+function marker(role, text, verdict) {
+  const cls = verdict === true ? ' good' : verdict === false ? ' bad' : '';
+  const sym = verdict === true ? '✓' : verdict === false ? '✗' : '◆';
+  return el('li', `marker ${role}${cls}`, `${sym} ${text}`);
+}
+
+function slotItem(i, mode) {
+  const tl = activePlayer(game).timeline;
+  const label = mode === 'challenger' ? 'Challenge here' : game.pending.slot === null ? 'Place here' : 'Move here';
+  const b = el('button', 'slot', label);
+  b.type = 'button';
+  const where = i === 0 ? 'before the first card' : i === tl.length ? 'after the last card' : `between ${tl[i - 1].year} and ${tl[i].year}`;
+  b.setAttribute('aria-label', `${label}: ${where}`);
+  b.addEventListener('click', () => onSlot(i, mode));
+  const li = el('li');
+  li.append(b);
+  return li;
+}
+
+function renderActive(highlightId) {
+  const a = activePlayer(game);
+  $('active-head').replaceChildren(
+    el('span', '', isGroup() ? `${a.name}'s timeline` : 'Your timeline'),
+    el('span', 'badge', cardsLabel(a)),
+  );
   const root = $('timeline');
   root.replaceChildren();
-  const tl = player.timeline;
+  const tl = a.timeline; // after a reveal it already contains the awarded card
+  const { slot, challenger, challengerSlot } = game.pending;
+  const out = game.outcome;
+  const mode = slotMode();
+  // Markers refer to gaps of the timeline as it was when placing; an inserted card shifts later gaps by one.
+  const bShift = out && out.aCorrect && challengerSlot !== null && challengerSlot > slot ? 1 : 0;
   for (let i = 0; i <= tl.length; i++) {
-    if (interactive) {
-      const li = el('li');
-      const b = el('button', 'slot', 'Place here');
-      b.type = 'button';
-      const where = i === 0 ? 'before the first card' : i === tl.length ? 'after the last card' : `between ${tl[i - 1].year} and ${tl[i].year}`;
-      b.setAttribute('aria-label', `Place song ${where}`);
-      b.addEventListener('click', () => onPlace(i));
-      li.append(b);
-      root.append(li);
+    if (slot === i) root.append(marker('role-a', `${a.name}'s guess`, out ? out.aCorrect : null));
+    if (challengerSlot !== null && challengerSlot + bShift === i) {
+      root.append(marker('role-b', `${game.players[challenger].name}'s challenge`, out ? out.challengerCorrect : null));
     }
-    if (i < tl.length) {
-      const s = tl[i];
-      const li = el('li', `tl-card${s.id === highlightId ? ' new' : ''}`);
-      const text = el('div');
-      const title = el('div', 'tl-title', s.title);
-      const artist = el('div', 'tl-artist', s.artist);
-      title.dir = artist.dir = 'auto';
-      text.append(title, artist);
-      li.append(el('div', 'tl-year', String(s.year)), text);
-      root.append(li);
-    }
+    if (mode && i !== slot) root.append(slotItem(i, mode));
+    if (i < tl.length) root.append(timelineCard(tl[i], tl[i].id === highlightId));
   }
+}
+
+function renderOthers(awardedTo, songId) {
+  const root = $('others');
+  root.replaceChildren();
+  game.players.forEach((p, i) => {
+    if (i === game.turn) return;
+    const box = el('div', `mini${i === peekIdx ? ' peek' : ''}`);
+    box.append(el('div', 'player-head'));
+    box.firstChild.append(el('span', '', p.name), el('span', 'badge', cardsLabel(p)));
+    const ol = el('ol', 'timeline');
+    for (const s of p.timeline) ol.append(timelineCard(s, i === awardedTo && s.id === songId));
+    box.append(ol);
+    root.append(box);
+  });
+  root.hidden = !isGroup();
+  root.classList.toggle('open', peekIdx !== null);
+  $('board').classList.toggle('solo', !isGroup());
+}
+
+function renderChallengeBox() {
+  const box = $('challenge-box');
+  const btns = $('challenge-btns');
+  btns.replaceChildren();
+  const { challenger } = game.pending;
+  if (!isGroup() || game.phase !== 'placed') { box.hidden = true; return; }
+  if (challenger !== null) {
+    box.hidden = false;
+    $('challenge-text').textContent = `${game.players[challenger].name} challenged (challenge card spent until the reveal).`;
+    return;
+  }
+  const eligible = eligibleChallengers(game);
+  box.hidden = eligible.length === 0;
+  $('challenge-text').textContent = 'A player holding a challenge card may challenge this placement:';
+  for (const idx of eligible) {
+    const p = game.players[idx];
+    const b = el('button', '', `Challenge: ${p.name} (🃏 ${p.challenges})`);
+    b.type = 'button';
+    b.addEventListener('click', () => act(() => challenge(game, idx), `challenge by ${p.name}`));
+    btns.append(b);
+  }
+}
+
+function renderReveal() {
+  const o = game.outcome;
+  const players = game.players;
+  const a = players[o.player];
+  const group = isGroup();
+  $('reveal').className = `card reveal ${o.aCorrect ? 'good' : 'bad'}`;
+  $('reveal-result').textContent = `${group ? `${a.name}: ` : ''}${o.aCorrect ? '✓ Correct' : '✗ Wrong'}`;
+  $('reveal-song').textContent = `${o.song.title}, ${o.song.artist}`;
+  $('reveal-year').textContent = String(o.song.year);
+
+  const notes = $('reveal-notes');
+  notes.replaceChildren();
+  const add = (t) => notes.append(el('li', '', t));
+  if (o.awardedTo === o.player) add(group ? `${a.name} keeps the card.` : 'Card added to your timeline.');
+  else if (o.awardedTo !== null) add(`${players[o.awardedTo].name} wins the card.`);
+  else add('Card discarded.');
+  if (o.challenger !== null) {
+    const b = players[o.challenger].name;
+    add(`${b}'s challenge: ${o.challengerCorrect ? '✓ right' : '✗ wrong'}.`);
+    add(o.challengeReturned ? `${b} gets the challenge card back.`
+      : o.challengeLost ? `${b} loses the challenge card.` : `${b}'s challenge card is used up.`);
+  }
+  if (group && game.claimed) add(`${a.name} claimed a challenge card (+1 🃏).`);
+
+  $('claim-btn').hidden = !group || game.status !== 'playing' || game.claimed;
+
+  const done = game.status !== 'playing' || game.pool.length === 0;
+  $('next-btn').textContent = done ? 'See results'
+    : group ? `Pass to ${players[(game.turn + 1) % players.length].name}` : 'Next song';
+}
+
+function renderPanel() {
+  const revealed = game.phase === 'revealed';
+  const group = isGroup();
+  $('mystery').hidden = revealed;
+  $('submit-btn').hidden = revealed;
+  $('hint').hidden = revealed;
+  $('reveal').hidden = !revealed;
+  $('next-btn').hidden = !revealed;
+  if (!revealed) $('claim-btn').hidden = true;
+  if (revealed) {
+    $('challenge-box').hidden = true;
+    renderReveal();
+    return;
+  }
+  const { slot, challenger } = game.pending;
+  const waiting = awaitingChallengerSlot(game);
+  const a = activePlayer(game);
+  $('submit-btn').disabled = slot === null || waiting;
+  let hint;
+  if (slot === null) hint = 'Play the preview, then click where the song belongs in the timeline.';
+  else if (waiting) hint = `${game.players[challenger].name}: click a slot in ${a.name}'s timeline.`;
+  else if (challenger !== null) hint = 'Both placements are set. Press Reveal answer.';
+  else hint = group ? 'Placed. Another player may challenge now, or press Reveal answer.'
+    : 'Placed (you can still move it). Press Reveal answer.';
+  $('hint').textContent = hint;
+  renderChallengeBox();
 }
 
 function render() {
-  const idx = reveal ? reveal.player : game.turn;
-  const p = game.players[idx];
-  $('turn-name').textContent = reveal ? p.name : `${p.name}: your turn`;
-  renderScore(idx);
-  $('mystery').hidden = !!reveal;
-  $('reveal').hidden = !reveal;
-  if (reveal) {
-    const r = $('reveal');
-    r.className = `card reveal ${reveal.correct ? 'good' : 'bad'}`;
-    $('reveal-result').textContent = reveal.correct ? '✓ Correct' : '✗ Wrong';
-    $('reveal-song').textContent = `${reveal.song.title}, ${reveal.song.artist}`;
-    $('reveal-year').textContent = String(reveal.song.year);
-    $('reveal-note').textContent = reveal.correct ? 'Card added to your timeline.' : 'Card discarded.';
-    const next = game.status !== 'playing' ? 'See results' : game.players.length > 1 ? `Pass to ${game.players[game.turn].name}` : 'Next song';
-    $('next-btn').textContent = next;
-  }
-  renderTimeline(p, !reveal, reveal && reveal.correct ? reveal.song.id : null);
+  if (peekIdx === game.turn) peekIdx = null;
+  const o = game.outcome;
+  const a = activePlayer(game);
+  $('turn-name').textContent = isGroup() ? `${a.name}: ${game.phase === 'revealed' ? 'result' : 'your turn'}` : 'Solo game';
+  renderScore();
+  renderOthers(o ? o.awardedTo : null, o ? o.song.id : null);
+  renderActive(o && o.awardedTo === game.turn ? o.song.id : null);
+  renderPanel();
 }
 
-function onPlace(i) {
-  if (reveal || !game || game.status !== 'playing') return;
-  audio.pause();
-  reveal = placeCard(game, i);
-  dlog(`placed ${reveal.song.id} at ${i}: ${reveal.correct ? 'correct' : 'wrong'}`);
+// Run a game action, log it, and re-render. Logic errors are shown in the log, not thrown at the user.
+function act(fn, what) {
+  try {
+    fn();
+    dlog(what);
+  } catch (e) {
+    dlog(`${what} FAILED: ${e.message}`);
+  }
   render();
 }
 
+function onSlot(i, mode) {
+  if (mode === 'challenger') act(() => challengeSlot(game, i), `challenger slot ${i}`);
+  else act(() => placeCard(game, i), `placed at slot ${i}`);
+}
+
+$('submit-btn').addEventListener('click', () => {
+  audio.pause();
+  act(() => {
+    const o = reveal(game);
+    // Narrow screens: show where the card went if another player won it.
+    peekIdx = o.awardedTo !== null && o.awardedTo !== o.player ? o.awardedTo : null;
+    dlog(`reveal ${o.song.id}: A ${o.aCorrect ? 'right' : 'wrong'}` +
+      (o.challenger !== null ? `, challenger ${o.challengerCorrect ? 'right' : 'wrong'}` : '') +
+      `, awardedTo=${o.awardedTo}`);
+  }, 'submit');
+});
+
+$('claim-btn').addEventListener('click', () => act(() => claimChallengeCard(game), 'claim challenge card'));
+
 $('next-btn').addEventListener('click', () => {
-  reveal = null;
+  try {
+    nextTurn(game);
+  } catch (e) {
+    dlog(`next FAILED: ${e.message}`);
+    return;
+  }
   if (game.status !== 'playing') { showEnd(); return; }
+  peekIdx = null;
   render();
   prepare(game.current);
 });
@@ -243,7 +422,10 @@ function showEnd() {
     : g.players.length === 1 ? 'Out of songs' : `Out of songs: ${names} lead`;
   const ul = $('end-stats');
   ul.replaceChildren();
-  for (const p of g.players) ul.append(el('li', '', `${p.name}: ${p.timeline.length} cards, ${p.correct}/${p.attempts} correct`));
+  for (const p of g.players) {
+    ul.append(el('li', '', `${p.name}: ${p.timeline.length} cards, ${p.correct}/${p.attempts} correct` +
+      (g.players.length > 1 ? `, 🃏 ${p.challenges}` : '')));
+  }
   show('end');
 }
 

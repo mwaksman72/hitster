@@ -1,6 +1,6 @@
 // Caches the app shell + catalog only. Audio (Apple CDN) and the iTunes API are cross-origin
 // and are never intercepted or cached.
-const CACHE = 'timeline-spike-v1';
+const CACHE = 'timeline-spike-v5';
 const SHELL = [
   './', 'index.html', 'style.css', 'app.js', 'game.js', 'songs.json',
   'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png',

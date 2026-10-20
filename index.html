@@ -58,22 +58,41 @@
       </header>
       <ul id="score" class="score"></ul>
 
-      <div id="mystery" class="card mystery">
-        <div class="qmark" aria-hidden="true">?</div>
-        <button id="play-btn" type="button" class="primary" disabled>Loading…</button>
-        <p id="audio-status" class="muted small" aria-live="polite"></p>
-        <p class="muted small">Tap a "Place here" slot where this song belongs.</p>
-      </div>
+      <div id="board" class="board">
+        <aside id="others" class="others" aria-label="Other players"></aside>
 
-      <div id="reveal" class="card reveal" hidden>
-        <h3 id="reveal-result"></h3>
-        <p id="reveal-song" class="song" dir="auto"></p>
-        <p id="reveal-year" class="year"></p>
-        <p id="reveal-note" class="muted"></p>
-        <button id="next-btn" type="button" class="primary">Next</button>
-      </div>
+        <section id="active" class="active" aria-label="Active player's timeline">
+          <div id="active-head" class="player-head"></div>
+          <ol id="timeline" class="timeline" aria-label="Timeline, earliest first"></ol>
+        </section>
 
-      <ol id="timeline" class="timeline" aria-label="Timeline, earliest first"></ol>
+        <aside id="panel" class="panel">
+          <div id="mystery" class="card mystery">
+            <div class="qmark" aria-hidden="true">?</div>
+            <button id="play-btn" type="button" class="primary" disabled>Loading…</button>
+            <p id="audio-status" class="muted small" aria-live="polite"></p>
+          </div>
+
+          <div id="reveal" class="card reveal" hidden>
+            <h3 id="reveal-result"></h3>
+            <p id="reveal-song" class="song" dir="auto"></p>
+            <p id="reveal-year" class="year"></p>
+            <ul id="reveal-notes" class="notes"></ul>
+          </div>
+
+          <!-- Action bar: sticky at the bottom (thumb zone) on narrow screens -->
+          <div id="actions" class="actions">
+            <div id="challenge-box" class="card" hidden>
+              <p id="challenge-text" class="small"></p>
+              <div id="challenge-btns" class="stack"></div>
+            </div>
+            <p id="hint" class="muted small" aria-live="polite"></p>
+            <button id="submit-btn" type="button" class="primary" disabled>Reveal answer</button>
+            <button id="claim-btn" type="button" hidden title="Guessed song and artist correctly: claim a challenge card" aria-label="Claim a challenge card (guessed song and artist correctly)">+🃏</button>
+            <button id="next-btn" type="button" class="primary" hidden>Next</button>
+          </div>
+        </aside>
+      </div>
     </section>
 
     <!-- END -->
