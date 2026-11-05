@@ -1,5 +1,5 @@
 import {
-  DEFAULTS, activePlayer, awaitingChallengerSlot, challenge, challengeSlot, claimChallengeCard,
+  activePlayer, awaitingChallengerSlot, challenge, challengeSlot, claimChallengeCard,
   createGame, eligibleChallengers, nextTurn, placeCard, reveal,
 } from './game.js';
 
@@ -12,20 +12,8 @@ const el = (tag, cls, text) => {
 };
 const audio = $('audio');
 
-// ---------- diagnostics ----------
-const logLines = [];
-function dlog(msg) {
-  logLines.push(`${new Date().toISOString().slice(11, 23)} ${msg}`);
-  if (logLines.length > 300) logLines.shift();
-  $('diag-log').textContent = logLines.join('\n');
-  console.log(msg);
-}
-function envInfo() {
-  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
-  const sw = 'serviceWorker' in navigator ? (navigator.serviceWorker.controller ? 'controlled' : 'not controlled') : 'unsupported';
-  $('env').textContent = `standalone=${standalone} sw=${sw} online=${navigator.onLine}`;
-  return $('env').textContent;
-}
+// Diagnostics are console-only (no visible UI).
+const dlog = (msg) => console.log(msg);
 
 // ---------- preview resolution ----------
 const PREVIEW_HOST = 'audio-ssl.itunes.apple.com'; // keep in sync with CSP media-src
@@ -63,8 +51,7 @@ async function lookup(song) {
 }
 
 async function resolvePreview(song) {
-  const mode = $('resolve-mode').value;
-  if (mode !== 'stored' && song.itunesTrackId) {
+  if (song.itunesTrackId) {
     const t0 = performance.now();
     try {
       const url = await lookup(song);
@@ -74,7 +61,6 @@ async function resolvePreview(song) {
       return url;
     } catch (e) {
       dlog(`lookup FAIL ${song.id}: ${e.name}: ${e.message}`);
-      if (mode === 'lookup') return null;
     }
   }
   if (song.previewUrl && allowedPreview(song.previewUrl)) {
@@ -134,7 +120,6 @@ audio.addEventListener('error', () => {
 // ---------- game flow ----------
 let songs = [];
 let game = null;
-let peekIdx = null; // narrow screens: index of the other player whose timeline is shown, or null
 
 const isGroup = () => game.players.length > 1;
 
@@ -143,13 +128,14 @@ function show(name) {
   document.body.classList.toggle('wide', name === 'play');
 }
 
+// Language is always Hebrew + English and the year span is the whole catalog.
 function readSettings() {
-  const lang = $('lang').value;
+  const years = songs.map((x) => x.year);
   return {
     players: $('mode').value === 'solo' ? 1 : Number($('players').value),
-    yearFrom: Number($('year-from').value),
-    yearTo: Number($('year-to').value),
-    languages: lang === 'both' ? ['he', 'en'] : [lang],
+    yearFrom: Math.min(...years),
+    yearTo: Math.max(...years),
+    languages: ['he', 'en'],
     targetCards: Number($('target').value),
   };
 }
@@ -166,47 +152,22 @@ $('setup-form').addEventListener('submit', (e) => {
     return;
   }
   dlog(`game start ${JSON.stringify(game.settings)}`);
-  peekIdx = null;
   show('play');
   render();
   prepare(game.current);
 });
 
 // ---- rendering ----
+const PALETTE = 8; // border/avatar colors: .k0 .. .k7 in style.css
 const cardsLabel = (p) =>
   `${p.timeline.length}/${game.settings.targetCards}${isGroup() ? ` · 🃏 ${p.challenges}` : ''}`;
 
-function renderScore() {
-  const ul = $('score');
-  ul.replaceChildren();
-  game.players.forEach((p, i) => {
-    const text = `${p.name}: ${cardsLabel(p)}`;
-    const li = el('li', i === game.turn ? 'current' : '');
-    if (isGroup() && i !== game.turn) {
-      // Tap to peek at this player's timeline (narrow screens; the desktop layout always shows them).
-      li.classList.add('chip');
-      const b = el('button', '', text);
-      b.type = 'button';
-      b.setAttribute('aria-expanded', String(peekIdx === i));
-      b.setAttribute('aria-label', `${text}. Show ${p.name}'s timeline`);
-      b.addEventListener('click', () => { peekIdx = peekIdx === i ? null : i; render(); });
-      li.append(b);
-    } else {
-      li.classList.add('chip');
-      li.append(el('span', '', text));
-    }
-    ul.append(li);
-  });
-}
-
-function timelineCard(s, highlight) {
-  const li = el('li', `tl-card${highlight ? ' new' : ''}`);
-  const text = el('div');
+function timelineCard(s, k, highlight) {
+  const li = el('li', `tl-card k${k % PALETTE}${highlight ? ' new' : ''}`);
   const title = el('div', 'tl-title', s.title);
   const artist = el('div', 'tl-artist', s.artist);
   title.dir = artist.dir = 'auto';
-  text.append(title, artist);
-  li.append(el('div', 'tl-year', String(s.year)), text);
+  li.append(el('div', 'tl-year', String(s.year)), title, artist);
   return li;
 }
 
@@ -220,14 +181,18 @@ function slotMode() {
 function marker(role, text, verdict) {
   const cls = verdict === true ? ' good' : verdict === false ? ' bad' : '';
   const sym = verdict === true ? '✓' : verdict === false ? '✗' : '◆';
-  return el('li', `marker ${role}${cls}`, `${sym} ${text}`);
+  const li = el('li', `marker ${role}${cls}`);
+  li.setAttribute('aria-label', text);
+  li.append(el('span', 'sym', sym), el('span', 'cap', text));
+  return li;
 }
 
 function slotItem(i, mode) {
   const tl = activePlayer(game).timeline;
   const label = mode === 'challenger' ? 'Challenge here' : game.pending.slot === null ? 'Place here' : 'Move here';
-  const b = el('button', 'slot', label);
+  const b = el('button', 'slot', '+');
   b.type = 'button';
+  b.title = label;
   const where = i === 0 ? 'before the first card' : i === tl.length ? 'after the last card' : `between ${tl[i - 1].year} and ${tl[i].year}`;
   b.setAttribute('aria-label', `${label}: ${where}`);
   b.addEventListener('click', () => onSlot(i, mode));
@@ -238,13 +203,17 @@ function slotItem(i, mode) {
 
 function renderActive(highlightId) {
   const a = activePlayer(game);
-  $('active-head').replaceChildren(
-    el('span', '', isGroup() ? `${a.name}'s timeline` : 'Your timeline'),
-    el('span', 'badge', cardsLabel(a)),
+  const head = $('active-head');
+  head.replaceChildren(
+    el('span', 'player-title', isGroup() ? `${a.name}'s timeline` : 'Your timeline'),
+    el('span', 'badge', `${a.timeline.length} / ${game.settings.targetCards}`),
   );
+  if (isGroup()) head.append(el('span', 'badge', `🃏 ${a.challenges}`));
   const root = $('timeline');
   root.replaceChildren();
   const tl = a.timeline; // after a reveal it already contains the awarded card
+  $('arrow-from').textContent = tl.length ? String(tl[0].year) : '';
+  $('arrow-to').textContent = tl.length ? String(tl[tl.length - 1].year) : '';
   const { slot, challenger, challengerSlot } = game.pending;
   const out = game.outcome;
   const mode = slotMode();
@@ -256,26 +225,31 @@ function renderActive(highlightId) {
       root.append(marker('role-b', `${game.players[challenger].name}'s challenge`, out ? out.challengerCorrect : null));
     }
     if (mode && i !== slot) root.append(slotItem(i, mode));
-    if (i < tl.length) root.append(timelineCard(tl[i], tl[i].id === highlightId));
+    if (i < tl.length) root.append(timelineCard(tl[i], i, tl[i].id === highlightId));
   }
+  // Keep the interesting spot in view when the timeline overflows horizontally.
+  const focus = root.querySelector('.marker, .tl-card.new');
+  if (focus) focus.scrollIntoView({ inline: 'center', block: 'nearest' });
+  else root.scrollLeft = 0;
 }
 
-function renderOthers(awardedTo, songId) {
+// Corner status of the non-active players: card count + challenge chips (no timelines).
+function renderOthers() {
   const root = $('others');
   root.replaceChildren();
   game.players.forEach((p, i) => {
     if (i === game.turn) return;
-    const box = el('div', `mini${i === peekIdx ? ' peek' : ''}`);
-    box.append(el('div', 'player-head'));
-    box.firstChild.append(el('span', '', p.name), el('span', 'badge', cardsLabel(p)));
-    const ol = el('ol', 'timeline');
-    for (const s of p.timeline) ol.append(timelineCard(s, i === awardedTo && s.id === songId));
-    box.append(ol);
+    const box = el('div', 'pl');
+    box.setAttribute('role', 'group');
+    box.setAttribute('aria-label', `${p.name}: ${cardsLabel(p)}`);
+    const av = el('div', `av k${i % PALETTE}`, String(i + 1));
+    av.append(el('small', '', String(p.timeline.length)), el('em', '', `🃏${p.challenges}`));
+    const names = el('div', 'pl-name');
+    names.append(el('b', '', p.name), el('span', 'muted small', `${p.timeline.length}/${game.settings.targetCards} cards`));
+    box.append(av, names);
     root.append(box);
   });
   root.hidden = !isGroup();
-  root.classList.toggle('open', peekIdx !== null);
-  $('board').classList.toggle('solo', !isGroup());
 }
 
 function renderChallengeBox() {
@@ -361,12 +335,10 @@ function renderPanel() {
 }
 
 function render() {
-  if (peekIdx === game.turn) peekIdx = null;
   const o = game.outcome;
   const a = activePlayer(game);
   $('turn-name').textContent = isGroup() ? `${a.name}: ${game.phase === 'revealed' ? 'result' : 'your turn'}` : 'Solo game';
-  renderScore();
-  renderOthers(o ? o.awardedTo : null, o ? o.song.id : null);
+  renderOthers();
   renderActive(o && o.awardedTo === game.turn ? o.song.id : null);
   renderPanel();
 }
@@ -391,8 +363,6 @@ $('submit-btn').addEventListener('click', () => {
   audio.pause();
   act(() => {
     const o = reveal(game);
-    // Narrow screens: show where the card went if another player won it.
-    peekIdx = o.awardedTo !== null && o.awardedTo !== o.player ? o.awardedTo : null;
     dlog(`reveal ${o.song.id}: A ${o.aCorrect ? 'right' : 'wrong'}` +
       (o.challenger !== null ? `, challenger ${o.challengerCorrect ? 'right' : 'wrong'}` : '') +
       `, awardedTo=${o.awardedTo}`);
@@ -409,7 +379,6 @@ $('next-btn').addEventListener('click', () => {
     return;
   }
   if (game.status !== 'playing') { showEnd(); return; }
-  peekIdx = null;
   render();
   prepare(game.current);
 });
@@ -432,32 +401,15 @@ function showEnd() {
 $('again').addEventListener('click', () => { audio.pause(); show('setup'); });
 $('quit').addEventListener('click', () => { audio.pause(); show('setup'); });
 
-// ---------- diagnostics actions ----------
-$('check-all').addEventListener('click', async () => {
-  dlog(`--- lookup check (${envInfo()}) ---`);
-  for (const s of songs) {
-    const t0 = performance.now();
-    try {
-      const url = await lookup(s);
-      dlog(`${s.id}: ok ${Math.round(performance.now() - t0)}ms ${url === s.previewUrl ? 'same' : 'DIFFERS'} ${allowedPreview(url) ? '' : 'BAD-HOST'}`);
-    } catch (e) {
-      dlog(`${s.id}: FAIL ${e.name}: ${e.message}`);
-    }
-  }
-  dlog('--- done ---');
-});
-$('copy-log').addEventListener('click', async () => {
-  try {
-    await navigator.clipboard.writeText(logLines.join('\n'));
-    dlog('log copied');
-  } catch (e) {
-    dlog(`copy failed: ${e.message} (select the log text manually)`);
-  }
+// Tap either end of the time arrow to jump to the oldest / newest card.
+$('arrow-from').addEventListener('click', () => $('timeline').scrollTo({ left: 0, behavior: 'smooth' }));
+$('arrow-to').addEventListener('click', () => {
+  const t = $('timeline');
+  t.scrollTo({ left: t.scrollWidth, behavior: 'smooth' });
 });
 
 // ---------- boot ----------
 async function boot() {
-  $('year-to').value = DEFAULTS.yearTo;
   try {
     const r = await fetch('songs.json');
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -471,9 +423,6 @@ async function boot() {
     $('setup-error').textContent = `Could not load songs: ${e.message}`;
     dlog(`catalog FAIL: ${e.message}`);
   }
-  envInfo();
-  addEventListener('online', () => { dlog('online'); envInfo(); });
-  addEventListener('offline', () => { dlog('offline'); envInfo(); });
   if ('serviceWorker' in navigator && !location.search.includes('nosw')) {
     try {
       const reg = await navigator.serviceWorker.register('sw.js');

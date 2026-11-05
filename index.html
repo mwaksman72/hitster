@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; media-src https://audio-ssl.itunes.apple.com; connect-src 'self' https://itunes.apple.com; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'">
   <title>Song Timeline</title>
-  <meta name="theme-color" content="#4f46e5">
+  <meta name="theme-color" content="#f5ecdc">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Timeline">
@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="rotate" role="alert"><div class="ico" aria-hidden="true">📱↻</div><p><b>Rotate your phone</b><br>Song Timeline is played in landscape.</p></div>
   <main>
     <!-- SETUP -->
     <section id="setup" class="screen">
@@ -30,17 +31,6 @@
         <label id="players-row" hidden>Players
           <input id="players" type="number" min="2" max="6" value="2" inputmode="numeric">
         </label>
-        <div class="row">
-          <label>From year <input id="year-from" type="number" min="1900" max="2100" value="1930" inputmode="numeric"></label>
-          <label>To year <input id="year-to" type="number" min="1900" max="2100" value="2025" inputmode="numeric"></label>
-        </div>
-        <label>Language
-          <select id="lang">
-            <option value="both">Hebrew + English</option>
-            <option value="en">English</option>
-            <option value="he">Hebrew</option>
-          </select>
-        </label>
         <label>Cards to win
           <input id="target" type="number" min="2" max="20" value="3" inputmode="numeric">
           <span class="muted small">Spec default is 10; 3 here because the spike catalog has only 10 songs.</span>
@@ -50,19 +40,24 @@
       </form>
     </section>
 
-    <!-- PLAY -->
+    <!-- PLAY (landscape phone layout: timeline left, mystery song + actions right) -->
     <section id="play" class="screen" hidden>
-      <header class="bar">
-        <h2 id="turn-name"></h2>
-        <button id="quit" type="button" class="link">Quit</button>
-      </header>
-      <ul id="score" class="score"></ul>
-
       <div id="board" class="board">
-        <aside id="others" class="others" aria-label="Other players"></aside>
-
         <section id="active" class="active" aria-label="Active player's timeline">
-          <div id="active-head" class="player-head"></div>
+          <div class="top">
+            <h2 id="turn-name" class="sr"></h2>
+            <div id="active-head" class="player-head"></div>
+            <aside id="others" class="others" aria-label="Other players"></aside>
+            <button id="quit" type="button" class="link">Quit</button>
+          </div>
+          <div class="time-arrow">
+            <div class="rib">
+              <button id="arrow-from" type="button" class="end" aria-label="Jump to the oldest card"></button>
+              <span aria-hidden="true">Time</span>
+              <button id="arrow-to" type="button" class="end" aria-label="Jump to the newest card"></button>
+            </div>
+            <div class="tip" aria-hidden="true"></div>
+          </div>
           <ol id="timeline" class="timeline" aria-label="Timeline, earliest first"></ol>
         </section>
 
@@ -80,7 +75,7 @@
             <ul id="reveal-notes" class="notes"></ul>
           </div>
 
-          <!-- Action bar: sticky at the bottom (thumb zone) on narrow screens -->
+          <!-- Actions sit at the bottom of the right column (thumb zone) -->
           <div id="actions" class="actions">
             <div id="challenge-box" class="card" hidden>
               <p id="challenge-text" class="small"></p>
@@ -102,23 +97,6 @@
       <button id="again" type="button" class="primary">Play again</button>
     </section>
 
-    <!-- DIAGNOSTICS -->
-    <details id="diag">
-      <summary>Diagnostics</summary>
-      <p id="env" class="small"></p>
-      <label class="small">Preview source
-        <select id="resolve-mode">
-          <option value="auto">auto (lookup, then stored URL)</option>
-          <option value="lookup">lookup only</option>
-          <option value="stored">stored URL only</option>
-        </select>
-      </label>
-      <div class="row">
-        <button id="check-all" type="button">Check all lookups</button>
-        <button id="copy-log" type="button">Copy log</button>
-      </div>
-      <pre id="diag-log"></pre>
-    </details>
   </main>
   <audio id="audio" preload="none"></audio>
   <script type="module" src="app.js"></script>
