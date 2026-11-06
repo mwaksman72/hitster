@@ -129,6 +129,14 @@ export function placeCard(game, slot) {
   game.phase = 'placed';
 }
 
+// Active player takes the placement back (before any challenge); the turn returns to the 'place' phase.
+export function unplaceCard(game) {
+  requirePhase(game, 'placed');
+  if (game.pending.challenger !== null) throw new Error('placement is locked by a challenge');
+  game.pending.slot = null;
+  game.phase = 'place';
+}
+
 // Players (other than the active one) who hold a challenge card and may challenge now.
 export function eligibleChallengers(game) {
   if (game.status !== 'playing' || game.phase !== 'placed' || game.pending.challenger !== null) return [];
@@ -149,10 +157,17 @@ export function awaitingChallengerSlot(game) {
     && game.pending.challenger !== null && game.pending.challengerSlot === null;
 }
 
-// The challenger picks a slot in the ACTIVE player's timeline, different from the active player's slot.
+// Challenger takes the slot back (before the reveal) and must pick again.
+export function unchallengeSlot(game) {
+  requirePhase(game, 'placed');
+  if (game.pending.challenger === null || game.pending.challengerSlot === null) throw new Error('no challenger slot to take back');
+  game.pending.challengerSlot = null;
+}
+
+// The challenger picks a slot in the ACTIVE player's timeline, different from the active player's slot (may be repeated until the reveal).
 export function challengeSlot(game, slot) {
   requirePhase(game, 'placed');
-  if (!awaitingChallengerSlot(game)) throw new Error('no challenger is waiting for a slot');
+  if (game.pending.challenger === null) throw new Error('no challenger this turn');
   checkSlot(activePlayer(game).timeline, slot);
   if (slot === game.pending.slot) throw new RangeError('challenger must pick a different slot');
   game.pending.challengerSlot = slot;
@@ -228,10 +243,24 @@ function roundResult(game) {
   return gained.length === 1 ? { winners: gained } : { tiebreak: game.tiebreak.players };
 }
 
+// Final round cut short: one player holds the target and no player still to play this round can reach it
+// (conservative: each remaining turn adds at most one card to any other player, as turn owner or challenger).
+// Returns the winner's index or null. Not used during a tie-break.
+export function decidedEarly(game) {
+  if (game.status !== 'playing' || !game.finalRound || game.tiebreak || isLastOfRound(game)) return null;
+  const t = game.settings.targetCards;
+  const leaders = game.players.flatMap((p, i) => (p.timeline.length >= t ? [i] : []));
+  if (leaders.length !== 1) return null;
+  const remaining = game.players.length - 1 - game.turn;
+  const safe = game.players.every((p, i) => i === leaders[0] || p.timeline.length + remaining < t);
+  return safe ? leaders[0] : null;
+}
+
 // True when nextTurn() will finish the game: the pool ran out, or a complete round ended with a single winner.
 export function endsAfterThisTurn(game) {
   if (game.status !== 'playing') return true;
   if (game.pool.length === 0) return true;
+  if (game.phase === 'revealed' && decidedEarly(game) !== null) return true;
   return game.finalRound && isLastOfRound(game) && !!roundResult(game).winners;
 }
 
@@ -249,6 +278,12 @@ export function nextPlayerIndex(game) {
 export function nextTurn(game) {
   if (game.phase !== 'revealed') throw new Error('turn is not finished');
   if (game.status !== 'playing') return;
+  const early = decidedEarly(game);
+  if (early !== null) {
+    game.status = 'won';
+    game.winners = [early];
+    return;
+  }
   const next = nextPlayerIndex(game);
   if (game.finalRound && isLastOfRound(game)) {
     const res = roundResult(game);

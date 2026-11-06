@@ -1,6 +1,7 @@
 import {
   activePlayer, awaitingChallengerSlot, challenge, challengeSlot, claimChallengeCard,
-  createGame, eligibleChallengers, endsAfterThisTurn, nextPlayerIndex, nextTurn, placeCard, recordPlayed, reveal,
+  createGame, decidedEarly, eligibleChallengers, endsAfterThisTurn, nextPlayerIndex, nextTurn, placeCard, recordPlayed, reveal,
+  unchallengeSlot, unplaceCard,
 } from './game.js';
 
 const $ = (id) => document.getElementById(id);
@@ -72,7 +73,7 @@ async function resolvePreview(song) {
 
 // The URL is resolved when a turn starts, so play() can run synchronously in the tap handler
 // (iOS may reject play() after an await, i.e. once the user-gesture is considered stale).
-let prep = { id: null, url: null, state: 'idle' }; // state: idle | resolving | ready | failed
+let prep = { id: null, url: null, state: 'idle' }; // state: idle | resolving | ready | playing | played (used up this turn) | failed
 
 async function prepare(song) {
   const mine = (prep = { id: song.id, url: null, state: 'resolving' });
@@ -90,31 +91,48 @@ function setStatus(text) { $('audio-status').textContent = text; }
 
 function setPlayState() {
   const b = $('play-btn');
-  b.disabled = prep.state === 'resolving';
-  b.textContent = { idle: '▶ Play preview', resolving: 'Loading…', ready: '▶ Play preview', failed: '↻ Retry' }[prep.state];
-  if (prep.state === 'failed') setStatus('Preview unavailable (offline?). Tap Retry.');
-  else if (prep.state === 'ready') setStatus('');
+  const st = prep.state;
+  b.disabled = !(st === 'ready' || st === 'playing' || st === 'failed');
+  b.textContent = { playing: '■', failed: '↻' }[st] || '▶';
+  b.setAttribute('aria-label', { playing: 'Stop preview', failed: 'Retry preview' }[st] || 'Play preview');
+  b.classList.toggle('spent', st === 'resolving' || st === 'played' || st === 'idle');
+  if (st === 'failed') setStatus('Preview unavailable (offline?). Tap retry.');
+  else if (st === 'ready') setStatus('');
+}
+
+// The preview is single-use per turn: stopped or finished -> grey inactive play symbol.
+function endPreview() {
+  audio.pause();
+  if (prep.state === 'playing' || prep.state === 'ready') { prep.state = 'played'; setPlayState(); }
 }
 
 $('play-btn').addEventListener('click', () => {
   if (prep.state === 'failed') { prepare(game.current); return; }
+  if (prep.state === 'playing') { audio.currentTime = 0; endPreview(); return; }
   if (prep.state !== 'ready') return;
   if (audio.getAttribute('src') !== prep.url) audio.src = prep.url;
   audio.currentTime = 0;
+  prep.state = 'playing';
+  setPlayState();
   const p = audio.play(); // synchronous inside the click handler
   if (p) {
     p.then(() => dlog(`play() ok ${prep.id}`)).catch((e) => {
       dlog(`play() rejected ${prep.id}: ${e.name}: ${e.message}`);
+      prep.state = 'ready';
+      setPlayState();
       setStatus(`Couldn't play (${e.name}). Tap again.`);
     });
   }
 });
-audio.addEventListener('playing', () => setStatus('Playing…'));
-audio.addEventListener('ended', () => setStatus('Done. Tap to replay.'));
+audio.addEventListener('ended', endPreview);
 audio.addEventListener('error', () => {
   const code = audio.error ? audio.error.code : '?';
   dlog(`audio error code=${code} id=${prep.id} src=${audio.getAttribute('src')}`);
-  if (prep.state === 'ready') setStatus('Preview failed to load (offline?). Tap to retry.');
+  if (prep.state === 'ready' || prep.state === 'playing') {
+    prep.state = 'ready';
+    setPlayState();
+    setStatus('Preview failed to load (offline?). Tap to retry.');
+  }
 });
 
 // ---------- game flow ----------
@@ -192,15 +210,19 @@ function timelineCard(s, k, highlight) {
 // Who may click slots in the active timeline right now?
 function slotMode() {
   if (game.status !== 'playing' || game.phase === 'revealed') return null;
-  if (awaitingChallengerSlot(game)) return 'challenger';
-  return game.pending.challenger !== null ? null : 'active';
+  return game.pending.challenger !== null ? 'challenger' : 'active';
 }
 
-function marker(role, text, verdict) {
+function marker(role, text, verdict, onTap) {
   const cls = verdict === true ? ' good' : verdict === false ? ' bad' : '';
   const sym = verdict === true ? '✓' : verdict === false ? '✗' : '◆';
-  const li = el('li', `marker ${role}${cls}`);
-  li.setAttribute('aria-label', text);
+  const li = el('li', `marker ${role}${cls}${onTap ? ' tap' : ''}`);
+  li.setAttribute('aria-label', onTap ? `${text} (tap to take back)` : text);
+  if (onTap) {
+    li.tabIndex = 0;
+    li.setAttribute('role', 'button');
+    li.addEventListener('click', onTap);
+  }
   li.append(el('span', 'sym', sym), el('span', 'cap', text));
   return li;
 }
@@ -238,11 +260,15 @@ function renderActive(highlightId) {
   // Markers refer to gaps of the timeline as it was when placing; an inserted card shifts later gaps by one.
   const bShift = out && out.aCorrect && challengerSlot !== null && challengerSlot > slot ? 1 : 0;
   for (let i = 0; i <= tl.length; i++) {
-    if (slot === i) root.append(marker('role-a', `${a.name}'s guess`, out ? out.aCorrect : null));
-    if (challengerSlot !== null && challengerSlot + bShift === i) {
-      root.append(marker('role-b', `${game.players[challenger].name}'s challenge`, out ? out.challengerCorrect : null));
+    if (slot === i) {
+      const tap = !out && challenger === null ? () => act(() => unplaceCard(game), 'take back placement') : null;
+      root.append(marker('role-a', `${a.name}'s guess`, out ? out.aCorrect : null, tap));
     }
-    if (mode && i !== slot) root.append(slotItem(i, mode));
+    if (challengerSlot !== null && challengerSlot + bShift === i) {
+      const tap = !out ? () => act(() => unchallengeSlot(game), 'take back challenge slot') : null;
+      root.append(marker('role-b', `${game.players[challenger].name}'s challenge`, out ? out.challengerCorrect : null, tap));
+    }
+    if (mode && i !== slot && !(mode === 'challenger' && i === challengerSlot)) root.append(slotItem(i, mode));
     if (i < tl.length) root.append(timelineCard(tl[i], i, tl[i].id === highlightId));
   }
   // Keep the interesting spot in view when the timeline overflows horizontally.
@@ -278,7 +304,9 @@ function renderChallengeBox() {
   if (!isGroup() || game.phase !== 'placed') { box.hidden = true; return; }
   if (challenger !== null) {
     box.hidden = false;
-    $('challenge-text').textContent = `${game.players[challenger].name} challenged (challenge card spent until the reveal).`;
+    $('challenge-text').textContent = awaitingChallengerSlot(game)
+      ? `${game.players[challenger].name}: tap a slot in ${activePlayer(game).name}'s timeline.`
+      : `${game.players[challenger].name} challenged (challenge card spent until the reveal).`;
     return;
   }
   const eligible = eligibleChallengers(game);
@@ -323,6 +351,7 @@ function renderReveal() {
       ? `Tie-break: ${game.tiebreak.players.map((i) => players[i].name).join(' & ')} play on until only one of them wins a card in a round.`
       : `${at} reached ${game.settings.targetCards} cards. Final round: everyone plays the same number of turns; if several players reach the target, a tie-break follows.`);
   }
+  if (decidedEarly(game) !== null) add(`${players[decidedEarly(game)].name} has won: the remaining players cannot catch up, so they do not play this round.`);
   if (group && game.claimed) add(`${a.name} claimed a challenge card (+1 🃏).`);
 
   $('claim-btn').hidden = !group || game.status !== 'playing' || game.claimed;
@@ -337,7 +366,6 @@ function renderPanel() {
   const group = isGroup();
   $('mystery').hidden = revealed;
   $('submit-btn').hidden = revealed;
-  $('hint').hidden = revealed;
   $('reveal').hidden = !revealed;
   $('next-btn').hidden = !revealed;
   if (!revealed) $('claim-btn').hidden = true;
@@ -346,17 +374,9 @@ function renderPanel() {
     renderReveal();
     return;
   }
-  const { slot, challenger } = game.pending;
+  const { slot } = game.pending;
   const waiting = awaitingChallengerSlot(game);
-  const a = activePlayer(game);
   $('submit-btn').disabled = slot === null || waiting;
-  let hint;
-  if (slot === null) hint = 'Play the preview, then click where the song belongs in the timeline.';
-  else if (waiting) hint = `${game.players[challenger].name}: click a slot in ${a.name}'s timeline.`;
-  else if (challenger !== null) hint = 'Both placements are set. Press Reveal answer.';
-  else hint = group ? 'Placed. Another player may challenge now, or press Reveal answer.'
-    : 'Placed (you can still move it). Press Reveal answer.';
-  $('hint').textContent = hint;
   renderChallengeBox();
 }
 
@@ -386,7 +406,7 @@ function onSlot(i, mode) {
 }
 
 $('submit-btn').addEventListener('click', () => {
-  audio.pause();
+  endPreview();
   act(() => {
     const o = reveal(game);
     dlog(`reveal ${o.song.id}: A ${o.aCorrect ? 'right' : 'wrong'}` +

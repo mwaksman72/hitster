@@ -171,15 +171,15 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   translate: -50% 0; rotate: 4deg; width: 110px; text-align: center;
   font: 600 11px system-ui; color: var(--fg);
 }
+.marker.tap { cursor: pointer; }
 .marker.role-b { background: var(--alt); }
 .marker.good { background: var(--good); }
 .marker.bad { background: var(--bad); }
 
 /* right column: mystery song at the top, actions at the bottom (right-thumb zone) */
-.panel { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-height: 0; overflow-y: auto; padding-top: 6px; }
+.panel { display: flex; flex-direction: column; justify-content: space-between; gap: 8px; min-height: 0; overflow-y: auto; padding-top: 6px; padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px)); }
 .actions { display: grid; gap: 8px; grid-template-columns: auto 1fr; }
 .actions > * { grid-column: 1 / -1; }
-#hint { margin: 0; font-size: 0.72rem; line-height: 1.25; }
 #mystery {
   display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 8px; text-align: left;
   padding: 6px 8px; background: var(--ink); color: var(--ink-fg); border-color: var(--ink); border-radius: 12px;
@@ -188,9 +188,10 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
 #mystery .muted { color: color-mix(in srgb, var(--ink-fg) 70%, transparent); }
 #mystery #audio-status { grid-column: 1 / -1; margin: 0; font-size: 0.7rem; }
 #mystery #audio-status:empty { display: none; }
-#mystery button { min-height: 44px; }
+#mystery button { min-height: 44px; font-size: 1.4rem; line-height: 1; }
+#mystery #play-btn.spent { background: #9a9a9a; border-color: #9a9a9a; color: #ddd; opacity: 1; }
 #submit-btn, #next-btn { min-height: 52px; font-size: 1.05rem; }
-#challenge-box { padding: 8px; }
+#challenge-box { padding: 6px 8px; }
 #challenge-box p { margin: 0 0 6px; font-size: 0.72rem; line-height: 1.25; }
 #challenge-btns button { min-height: 40px; font-size: 0.8rem; padding: 4px 8px; }
 
@@ -226,7 +227,7 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   .slot { width: 60px; height: 60px; margin: 0 12px; font-size: 2rem; }
   .marker { width: 60px; height: 60px; margin: 0 12px; font-size: 1.6rem; }
   .marker .cap { top: calc(100% + (var(--card-h) - 60px) / 2 + 14px); font-size: 0.85rem; width: 140px; }
-  #hint, #challenge-box p { font-size: 0.85rem; }
+  #challenge-box p { font-size: 0.85rem; }
   #mystery { padding: 12px; }
   #mystery .qmark { font-size: 3rem; }
   #reveal { padding: 12px 14px; }
