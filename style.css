@@ -98,15 +98,15 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
 .top button.link { min-height: 40px; padding: 0 8px; font-size: 0.8rem; }
 
 /* other players: status in the corner (card count + challenge chips) */
-.others { display: flex; align-items: center; gap: 12px; }
+.others { display: flex; align-items: center; gap: 18px; padding: 10px 12px 0 10px; }
 .pl { display: flex; align-items: center; gap: 6px; }
 .av {
-  position: relative; width: 30px; height: 30px; border-radius: 50%;
+  position: relative; width: 46px; height: 46px; border-radius: 50%;
   display: grid; place-items: center; background: var(--c); color: #1a1208;
-  border: 2px solid var(--card); font: 800 14px Georgia, serif;
+  border: 2px solid var(--card); font: 800 20px Georgia, serif;
 }
-.av small { position: absolute; right: -6px; bottom: -6px; background: var(--ink); color: var(--ink-fg); border-radius: 999px; padding: 0 5px; font: 700 9px system-ui; }
-.av em { position: absolute; left: -7px; top: -7px; background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 0 5px; font: 700 9px system-ui; font-style: normal; }
+.av small { position: absolute; right: -10px; bottom: -8px; background: var(--ink); color: var(--ink-fg); border-radius: 999px; padding: 1px 7px; font: 800 14px/1.2 system-ui; }
+.av em { position: absolute; left: -10px; top: -9px; background: var(--accent); color: var(--accent-fg); border-radius: 999px; padding: 1px 7px; font: 800 14px/1.2 system-ui; font-style: normal; }
 .pl-name { display: none; line-height: 1.2; }
 .pl-name b { font-size: 1.1rem; }
 
@@ -211,8 +211,8 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   :root { --card-w: 236px; --card-h: 290px; --side-w: 320px; }
   .player-title { font-size: 2.4rem; }
   .badge { font-size: 1.05rem; padding: 4px 14px; }
-  .av { width: 60px; height: 60px; font-size: 1.4rem; }
-  .av small, .av em { font-size: 0.8rem; }
+  .av { width: 64px; height: 64px; font-size: 1.5rem; }
+  .av small, .av em { font-size: 1rem; padding: 2px 9px; }
   .pl-name { display: grid; }
   .rib { height: 34px; font-size: 0.9rem; }
   .rib .end { height: 34px; padding: 0 16px; }
@@ -246,3 +246,5 @@ button.link { border: 0; background: none; color: var(--muted); text-decoration:
   .rotate .ico { font-size: 3.4rem; }
   .rotate p { margin: 0; font-size: 1.1rem; }
 }
+
+#reveal-song b, #reveal-song span { display: block; }

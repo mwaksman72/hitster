@@ -1,6 +1,6 @@
 import {
   activePlayer, awaitingChallengerSlot, challenge, challengeSlot, claimChallengeCard,
-  createGame, eligibleChallengers, nextTurn, placeCard, reveal,
+  createGame, eligibleChallengers, endsAfterThisTurn, nextPlayerIndex, nextTurn, placeCard, recordPlayed, reveal,
 } from './game.js';
 
 const $ = (id) => document.getElementById(id);
@@ -140,13 +140,31 @@ function readSettings() {
   };
 }
 
+// Play history (per device): songs drawn recently are deprioritised in later games. See weightedOrder().
+const HISTORY_KEY = 'timeline-history-v1';
+let history = { n: 0, s: {} };
+function loadHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem(HISTORY_KEY));
+    if (h && Number.isInteger(h.n) && h.s && typeof h.s === 'object') return h;
+  } catch { /* storage unavailable or corrupt: behave like a fresh install */ }
+  return { n: 0, s: {} };
+}
+function markPlayed(...ids) {
+  history = recordPlayed(history, ids, history.n);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch { /* ignore */ }
+}
+
 $('mode').addEventListener('change', () => { $('players-row').hidden = $('mode').value === 'solo'; });
 
 $('setup-form').addEventListener('submit', (e) => {
   e.preventDefault();
   $('setup-error').textContent = '';
   try {
-    game = createGame(songs, readSettings());
+    history = loadHistory();
+    game = createGame(songs, readSettings(), Math.random, history);
+    history = { ...history, n: history.n + 1 };
+    markPlayed(...game.players.map((p) => p.timeline[0].id), game.current.id);
   } catch (err) {
     $('setup-error').textContent = err.message;
     return;
@@ -282,7 +300,9 @@ function renderReveal() {
   const group = isGroup();
   $('reveal').className = `card reveal ${o.aCorrect ? 'good' : 'bad'}`;
   $('reveal-result').textContent = `${group ? `${a.name}: ` : ''}${o.aCorrect ? '✓ Correct' : '✗ Wrong'}`;
-  $('reveal-song').textContent = `${o.song.title}, ${o.song.artist}`;
+  const rs = $('reveal-song');
+  rs.replaceChildren(el('b', '', o.song.title), el('span', 'muted', o.song.artist)); // separate lines: mixed RTL/LTR safe
+  rs.firstChild.dir = rs.lastChild.dir = 'auto';
   $('reveal-year').textContent = String(o.song.year);
 
   const notes = $('reveal-notes');
@@ -297,13 +317,19 @@ function renderReveal() {
     add(o.challengeReturned ? `${b} gets the challenge card back.`
       : o.challengeLost ? `${b} loses the challenge card.` : `${b}'s challenge card is used up.`);
   }
+  if (game.finalRound && group) {
+    const at = players.filter((p) => p.timeline.length >= game.settings.targetCards).map((p) => p.name).join(' & ');
+    add(game.tiebreak
+      ? `Tie-break: ${game.tiebreak.players.map((i) => players[i].name).join(' & ')} play on until only one of them wins a card in a round.`
+      : `${at} reached ${game.settings.targetCards} cards. Final round: everyone plays the same number of turns; if several players reach the target, a tie-break follows.`);
+  }
   if (group && game.claimed) add(`${a.name} claimed a challenge card (+1 🃏).`);
 
   $('claim-btn').hidden = !group || game.status !== 'playing' || game.claimed;
 
-  const done = game.status !== 'playing' || game.pool.length === 0;
+  const done = endsAfterThisTurn(game);
   $('next-btn').textContent = done ? 'See results'
-    : group ? `Pass to ${players[(game.turn + 1) % players.length].name}` : 'Next song';
+    : group ? `Pass to ${players[nextPlayerIndex(game)].name}` : 'Next song';
 }
 
 function renderPanel() {
@@ -378,6 +404,7 @@ $('next-btn').addEventListener('click', () => {
     dlog(`next FAILED: ${e.message}`);
     return;
   }
+  if (game.status === 'playing') markPlayed(game.current.id);
   if (game.status !== 'playing') { showEnd(); return; }
   render();
   prepare(game.current);
@@ -387,7 +414,7 @@ function showEnd() {
   const g = game;
   const names = g.winners.map((i) => g.players[i].name).join(' & ');
   $('end-title').textContent = g.status === 'won'
-    ? `${names} wins!`
+    ? `${names} ${g.winners.length > 1 ? 'win' : 'wins'}!`
     : g.players.length === 1 ? 'Out of songs' : `Out of songs: ${names} lead`;
   const ul = $('end-stats');
   ul.replaceChildren();
