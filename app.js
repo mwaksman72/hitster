@@ -100,7 +100,8 @@ function setPlayState() {
   else if (st === 'ready') setStatus('');
 }
 
-// The preview is single-use per turn: stopped or finished -> grey inactive play symbol.
+// The preview is used up per turn once it plays to its end (or Reveal is pressed): grey inactive play symbol.
+// A manual stop is only a pause (see the play-btn handler).
 function endPreview() {
   audio.pause();
   if (prep.state === 'playing' || prep.state === 'ready') { prep.state = 'played'; setPlayState(); }
@@ -108,11 +109,10 @@ function endPreview() {
 
 $('play-btn').addEventListener('click', () => {
   if (prep.state === 'failed') { prepare(game.current); return; }
-  if (prep.state === 'playing') { audio.currentTime = 0; endPreview(); return; }
+  if (prep.state === 'playing') { audio.pause(); prep.state = 'ready'; setPlayState(); return; } // pause: play resumes from here
   if (prep.state !== 'ready') return;
   if (audio.getAttribute('src') !== prep.url) audio.src = prep.url;
-  audio.currentTime = 0;
-  prep.state = 'playing';
+  prep.state = 'playing'; // no currentTime reset: resumes after a pause, starts at 0 on a fresh src
   setPlayState();
   const p = audio.play(); // synchronous inside the click handler
   if (p) {
